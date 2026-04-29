@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1063136139964",
+    "project_id": "intromobile2-a763d",
+    "storage_bucket": "intromobile2-a763d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1063136139964:android:cd1c8f03d3498fbf24ceb9",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_intro_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBI3H4PjwUCJgwnWi2EurfCyrhBmfkVnos"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
