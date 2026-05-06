@@ -1,3 +1,13 @@
+import java.util.Properties
+
+val envProperties = Properties()
+val envFile = rootProject.file("../.env")
+if (envFile.exists()) {
+    envFile.inputStream().use { stream ->
+        envProperties.load(stream)
+    }
+}
+
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -31,6 +41,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        manifestPlaceholders["mapsApiKey"] = envProperties.getProperty("MAPS_API_KEY") ?: "GEEN_SLEUTEL_GEVONDEN"
     }
 
     buildTypes {

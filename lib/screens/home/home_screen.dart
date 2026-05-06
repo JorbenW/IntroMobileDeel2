@@ -1,6 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../widgets/topbar.dart';
 import '../../constants/constants.dart';
+import '../search/item_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -11,6 +16,86 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String? _selectedCategoryFilter;
+  GoogleMapController? _mapController;
+  LatLng _initialPosition = const LatLng(50.8503, 4.3517); // Standaard: Brussel
+  bool _isLoadingLocation = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _determinePosition();
+  }
+
+  // Functie om de huidige locatie van de gebruiker te bepalen
+  Future<void> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+
+    if (permission == LocationPermission.deniedForever) return;
+
+    Position position = await Geolocator.getCurrentPosition();
+    if (mounted) {
+      setState(() {
+        _initialPosition = LatLng(position.latitude, position.longitude);
+        _isLoadingLocation = false;
+      });
+      // Verplaats de camera naar de gebruiker
+      _mapController?.animateCamera(CameraUpdate.newLatLng(_initialPosition));
+    }
+  }
+
+  // Hulpmiddel om markers te maken op basis van Firebase data en filters
+  Set<Marker> _buildMarkers(List<QueryDocumentSnapshot> docs) {
+    Set<Marker> markers = {};
+
+    for (var doc in docs) {
+      final data = doc.data() as Map<String, dynamic>;
+
+      // FILTER LOGICA: Toon alleen als categorie overeenkomt (of als er geen filter is)
+      if (_selectedCategoryFilter == null ||
+          data['categorie'] == _selectedCategoryFilter) {
+        final GeoPoint? geoPoint = data['locatie'] is GeoPoint
+            ? data['locatie']
+            : null;
+
+        if (geoPoint != null) {
+          markers.add(
+            Marker(
+              markerId: MarkerId(doc.id),
+              position: LatLng(geoPoint.latitude, geoPoint.longitude),
+              infoWindow: InfoWindow(
+                title: data['omschrijving'] ?? 'Toestel',
+                snippet: 'Tik hier om te reserveren',
+                onTap: () {
+                  // Navigeer naar de detail/reservatie pagina
+                  data['id'] = doc.id;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ItemDetailScreen(itemData: data),
+                    ),
+                  );
+                },
+              ),
+              icon: BitmapDescriptor.defaultMarkerWithHue(
+                BitmapDescriptor.hueViolet,
+              ),
+            ),
+          );
+        }
+      }
+    }
+    return markers;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,6 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
+            // ZOEKBALK (Bovenaan)
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -45,6 +131,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 16),
+
+            // CATEGORIE FILTER
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
               decoration: BoxDecoration(
@@ -76,10 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Text('Alle categorieën'),
                     ),
                     ...kCategories.map(
-                      (String cat) => DropdownMenuItem<String>(
-                        value: cat,
-                        child: Text(cat),
-                      ),
+                      (cat) => DropdownMenuItem(value: cat, child: Text(cat)),
                     ),
                   ],
                   onChanged: (newValue) =>
@@ -88,34 +173,52 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 24),
+
+            // DE KAART (Vervangt de placeholder)
             Expanded(
               child: Container(
-                width: double.infinity,
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  color: Colors.grey[200],
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: Colors.grey[300]!),
                 ),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.map_outlined, size: 60, color: Colors.grey),
-                    SizedBox(height: 10),
-                    Text(
-                      'Kaartweergave',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
+                child: _isLoadingLocation
+                    ? const Center(child: CircularProgressIndicator())
+                    : StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('toestellen')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData)
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+
+                          return GoogleMap(
+                            initialCameraPosition: CameraPosition(
+                              target: _initialPosition,
+                              zoom: 12,
+                            ),
+                            onMapCreated: (controller) =>
+                                _mapController = controller,
+                            markers: _buildMarkers(snapshot.data!.docs),
+                            myLocationEnabled:
+                                true, // Toont de blauwe stip van de gebruiker zelf
+                            myLocationButtonEnabled: false,
+                            zoomControlsEnabled: false,
+                            mapType: MapType.normal,
+                          );
+                        },
                       ),
-                    ),
-                  ],
-                ),
               ),
             ),
             const SizedBox(height: 16),
+
+            // RADIUS KNOP
             ElevatedButton.icon(
-              onPressed: () {},
+              onPressed: () {
+                // Toekomstige functie: Radius instellen
+              },
               icon: const Icon(Icons.location_on),
               label: const Text('Zoekradius instellen'),
               style: ElevatedButton.styleFrom(
