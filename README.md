@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # flutter_application_intro_mobile
 
 A new Flutter project.
@@ -17,9 +16,10 @@ For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
 =======
+
 # IntroMobileDeel2
+
 groep 13
 
 Jorben Wauters
 Ryan Wyters
->>>>>>> f4c300a8e6bb5515e99e0936a315907cfb19d87f

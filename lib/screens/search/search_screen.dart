@@ -14,14 +14,16 @@ class SearchScreen extends StatelessWidget {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance.collection('toestellen').snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting)
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
               child: CircularProgressIndicator(color: Colors.deepPurple),
             );
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return const Center(
               child: Text("Er is momenteel geen aanbod beschikbaar."),
             );
+          }
 
           final items = snapshot.data!.docs;
 
@@ -59,6 +61,17 @@ class SearchScreen extends StatelessWidget {
 
   Widget _buildModernItemCard(Map<String, dynamic> itemData) {
     final base64String = itemData['fotoBase64'] ?? '';
+
+    // FIX: Zet de GeoPoint veilig om naar tekst (of gebruik de oude string als die er nog is)
+    String locatieWeergave = "Geen locatie";
+    if (itemData['locatie'] is GeoPoint) {
+      GeoPoint gp = itemData['locatie'];
+      locatieWeergave =
+          "Lat: ${gp.latitude.toStringAsFixed(2)}, Lng: ${gp.longitude.toStringAsFixed(2)}";
+    } else if (itemData['locatie'] is String) {
+      locatieWeergave = itemData['locatie'];
+    }
+
     return Card(
       elevation: 4,
       shadowColor: Colors.black26,
@@ -138,7 +151,7 @@ class SearchScreen extends StatelessWidget {
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        itemData['locatie'] ?? '',
+                        locatieWeergave, // Gebruik hier onze nieuwe veilige variabele
                         style: const TextStyle(
                           color: Colors.grey,
                           fontSize: 12,
