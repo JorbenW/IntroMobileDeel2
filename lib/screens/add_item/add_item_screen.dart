@@ -27,6 +27,9 @@ class _AddItemScreenState extends State<AddItemScreen> {
   bool _isUploading = false;
   bool _isGettingLocation = false;
 
+  // NIEUW: Lijst die bijhoudt welke dagen zijn geselecteerd (standaard allemaal)
+  List<String> _selectedDays = List.from(kDaysOfWeek);
+
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(
@@ -42,57 +45,48 @@ class _AddItemScreenState extends State<AddItemScreen> {
 
   Future<void> _getCurrentLocation() async {
     setState(() => _isGettingLocation = true);
-
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
+      if (!serviceEnabled)
         throw Exception('Locatievoorzieningen zijn uitgeschakeld.');
-      }
-
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
+        if (permission == LocationPermission.denied)
           throw Exception('Locatiepermissie geweigerd.');
-        }
       }
+      if (permission == LocationPermission.deniedForever)
+        throw Exception('Locatiepermissie is permanent geweigerd.');
 
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception(
-          'Locatiepermissie is permanent geweigerd. Pas dit aan in je instellingen.',
-        );
-      }
-
-      // Haal de positie op
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-
       setState(() {
         _latController.text = position.latitude.toString();
         _lngController.text = position.longitude.toString();
       });
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
-      }
     } finally {
       setState(() => _isGettingLocation = false);
     }
   }
 
   Future<void> _uploadItem() async {
+    // Check ook of er minstens 1 dag is geselecteerd
     if (_imageBytes == null ||
         _omschrijvingController.text.isEmpty ||
         _latController.text.isEmpty ||
         _lngController.text.isEmpty ||
         _selectedCategorie == null ||
-        _prijsController.text.isEmpty) {
+        _prijsController.text.isEmpty ||
+        _selectedDays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Vul alle velden in en kies een foto!'),
+          content: Text('Vul alle velden in, kies een foto en minstens 1 dag!'),
           backgroundColor: Colors.red,
         ),
       );
@@ -104,7 +98,6 @@ class _AddItemScreenState extends State<AddItemScreen> {
     try {
       String base64Image = base64Encode(_imageBytes!);
       String userId = FirebaseAuth.instance.currentUser?.uid ?? 'Onbekend';
-
       double lat = double.tryParse(_latController.text.trim()) ?? 0.0;
       double lng = double.tryParse(_lngController.text.trim()) ?? 0.0;
 
@@ -116,6 +109,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
         'fotoBase64': base64Image,
         'verhuurderId': userId,
         'beschikbaar': true,
+        'beschikbareDagen': _selectedDays, // NIEUW: Sla de dagen op in Firebase
         'toegevoegdOp': Timestamp.now(),
       });
 
@@ -126,6 +120,7 @@ class _AddItemScreenState extends State<AddItemScreen> {
         _lngController.clear();
         _selectedCategorie = null;
         _prijsController.clear();
+        _selectedDays = List.from(kDaysOfWeek); // Reset naar alle dagen
         _isUploading = false;
       });
 
@@ -212,8 +207,6 @@ class _AddItemScreenState extends State<AddItemScreen> {
             ),
             const SizedBox(height: 24),
             _buildInputRow('Omschrijving', Icons.edit, _omschrijvingController),
-
-            // Nieuwe sectie voor Locatie (Lat/Lng)
             Row(
               children: [
                 Expanded(
@@ -235,8 +228,6 @@ class _AddItemScreenState extends State<AddItemScreen> {
                 ),
               ],
             ),
-
-            // Knop om GPS locatie op te halen
             Container(
               margin: const EdgeInsets.only(bottom: 16),
               width: double.infinity,
@@ -262,7 +253,6 @@ class _AddItemScreenState extends State<AddItemScreen> {
                 ),
               ),
             ),
-
             _buildDropdown(),
             _buildInputRow(
               'Prijs per dag (€)',
@@ -270,6 +260,46 @@ class _AddItemScreenState extends State<AddItemScreen> {
               _prijsController,
               isNumber: true,
             ),
+
+            // NIEUW: De Selectie voor Beschikbare Dagen
+            const SizedBox(height: 8),
+            const Text(
+              'Beschikbare Dagen',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.deepPurple,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8.0,
+              runSpacing: 4.0,
+              children: kDaysOfWeek.map((day) {
+                final isSelected = _selectedDays.contains(day);
+                return FilterChip(
+                  label: Text(
+                    day,
+                    style: TextStyle(
+                      color: isSelected ? Colors.deepPurple : Colors.black87,
+                    ),
+                  ),
+                  selected: isSelected,
+                  selectedColor: Colors.purple[100],
+                  checkmarkColor: Colors.deepPurple,
+                  onSelected: (bool selected) {
+                    setState(() {
+                      if (selected) {
+                        _selectedDays.add(day);
+                      } else {
+                        _selectedDays.remove(day);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+
             const SizedBox(height: 32),
             _isUploading
                 ? const Center(child: CircularProgressIndicator())

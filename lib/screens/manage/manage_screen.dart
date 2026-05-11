@@ -106,6 +106,7 @@ class ManageScreen extends StatelessWidget {
                   itemData['omschrijving'] ?? 'Toestel',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                   maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton(
@@ -271,50 +272,42 @@ class ManageScreen extends StatelessWidget {
                 const SizedBox(height: 16),
 
                 if (isOwner)
-                  Column(
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () =>
-                                  _updateStatus(reqData['id'], 'Goedgekeurd'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
-                              ),
-                              child: const Text(
-                                "ACCEPTEREN",
-                                style: TextStyle(fontSize: 11),
-                              ),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () =>
+                              _updateStatus(reqData['id'], 'Goedgekeurd'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text(
+                            "ACCEPTEREN",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () =>
-                                  _updateStatus(reqData['id'], 'Geweigerd'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red[400],
-                                foregroundColor: Colors.white,
-                              ),
-                              child: const Text(
-                                "WEIGEREN",
-                                style: TextStyle(fontSize: 11),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton(
-                        onPressed: () =>
-                            _showDeclineReasonDialog(context, reqData['id']),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
                         ),
-                        child: const Text('Weigeren met reden'),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () =>
+                              _showDeclineReasonDialog(context, reqData['id']),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red[400],
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text(
+                            "WEIGEREN",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   )
@@ -373,6 +366,7 @@ class ManageScreen extends StatelessWidget {
     });
   }
 
+  // NIEUW: Aangepaste weiger-dialoog waarbij je hem leeg kunt laten
   void _showDeclineReasonDialog(BuildContext context, String docId) {
     final reasonController = TextEditingController();
     showDialog(
@@ -382,36 +376,51 @@ class ManageScreen extends StatelessWidget {
           'Reden voor weigering',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        content: TextField(
-          controller: reasonController,
-          decoration: InputDecoration(
-            hintText: 'Typ hier de reden...',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-          maxLines: 3,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Laat dit veld leeg als je geen specifieke reden wilt opgeven.",
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: InputDecoration(
+                hintText: 'Typ hier eventueel een reden...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              maxLines: 3,
+            ),
+          ],
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annuleren'),
+            child: const Text(
+              'Annuleren',
+              style: TextStyle(color: Colors.grey),
+            ),
           ),
           ElevatedButton(
             onPressed: () {
-              if (reasonController.text.trim().isNotEmpty) {
-                _updateStatus(
-                  docId,
-                  'Geweigerd',
-                  reason: reasonController.text.trim(),
-                );
-                Navigator.pop(ctx);
+              // Als het tekstveld leeg is, geven we automatisch een standaardzinnetje mee.
+              String reason = reasonController.text.trim();
+              if (reason.isEmpty) {
+                reason = "Geen reden opgegeven";
               }
+              _updateStatus(docId, 'Geweigerd', reason: reason);
+              Navigator.pop(ctx);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: const Text('Weigeren'),
+            child: const Text('Definitief Weigeren'),
           ),
         ],
       ),
