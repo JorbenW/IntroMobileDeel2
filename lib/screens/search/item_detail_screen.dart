@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../../widgets/pink_button.dart';
 
 class ItemDetailScreen extends StatefulWidget {
@@ -16,9 +17,122 @@ class ItemDetailScreen extends StatefulWidget {
 class _ItemDetailScreenState extends State<ItemDetailScreen> {
   DateTime? _startDate;
   DateTime? _endDate;
-  bool _selectingStart = true;
+  late DateTime _focusedDay;
+
   final _messageController = TextEditingController();
   bool _isRequesting = false;
+  bool _isLoadingBookings = true; // NIEUW: We moeten even wachten op Firebase
+
+  List<int> _availableWeekdays = [];
+  List<DateTime> _bookedDates =
+      []; // NIEUW: Onze 'zwarte lijst' met goedgekeurde dagen
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateAvailableDays();
+    _fetchBookedDates(); // NIEUW: Haal de goedgekeurde reserveringen op
+
+    DateTime today = DateTime.now();
+    _focusedDay = today;
+    if (_availableWeekdays.isNotEmpty) {
+      while (!_availableWeekdays.contains(_focusedDay.weekday)) {
+        _focusedDay = _focusedDay.add(const Duration(days: 1));
+      }
+    }
+  }
+
+  // Zet de tekst uit Firebase ("dd/MM/yyyy") terug naar een echte DateTime
+  DateTime _parseDateString(String dateStr) {
+    final parts = dateStr.split('/');
+    if (parts.length == 3) {
+      return DateTime(
+        int.parse(parts[2]),
+        int.parse(parts[1]),
+        int.parse(parts[0]),
+      );
+    }
+    return DateTime.now();
+  }
+
+  // NIEUW: Haal goedgekeurde datums uit Firebase
+  Future<void> _fetchBookedDates() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('aanvragen')
+          .where('toestelId', isEqualTo: widget.itemData['id'])
+          .where('status', isEqualTo: 'Goedgekeurd')
+          .get();
+
+      List<DateTime> dates = [];
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final start = _parseDateString(data['startDatum']);
+        final end = _parseDateString(data['eindDatum']);
+
+        DateTime checkDatum = DateTime(start.year, start.month, start.day);
+        DateTime normalizedEnd = DateTime(end.year, end.month, end.day);
+
+        // Voeg alle dagen tussen start en eind toe aan de zwarte lijst
+        while (checkDatum.isBefore(normalizedEnd) ||
+            checkDatum.isAtSameMomentAs(normalizedEnd)) {
+          dates.add(checkDatum);
+          checkDatum = checkDatum.add(const Duration(days: 1));
+        }
+      }
+
+      setState(() {
+        _bookedDates = dates;
+        _isLoadingBookings = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingBookings = false);
+    }
+  }
+
+  void _calculateAvailableDays() {
+    final List<dynamic>? stringDays = widget.itemData['beschikbareDagen'];
+
+    if (stringDays == null || stringDays.isEmpty) {
+      _availableWeekdays = [1, 2, 3, 4, 5, 6, 7];
+      return;
+    }
+
+    Map<String, int> dayMap = {
+      'Maandag': DateTime.monday,
+      'Dinsdag': DateTime.tuesday,
+      'Woensdag': DateTime.wednesday,
+      'Donderdag': DateTime.thursday,
+      'Vrijdag': DateTime.friday,
+      'Zaterdag': DateTime.saturday,
+      'Zondag': DateTime.sunday,
+    };
+
+    _availableWeekdays = stringDays.map((d) => dayMap[d as String]!).toList();
+  }
+
+  // NIEUW: Helper functie om te checken of een dag op de zwarte lijst staat
+  bool _isDayBooked(DateTime day) {
+    DateTime normalizedDay = DateTime(day.year, day.month, day.day);
+    return _bookedDates.any((booked) => booked.isAtSameMomentAs(normalizedDay));
+  }
+
+  bool _isPeriodeGeldig(DateTime start, DateTime end) {
+    DateTime checkDatum = DateTime(start.year, start.month, start.day);
+    DateTime normalizedEnd = DateTime(end.year, end.month, end.day);
+
+    while (checkDatum.isBefore(normalizedEnd) ||
+        checkDatum.isAtSameMomentAs(normalizedEnd)) {
+      // 1. Check of de dag wel in het rooster zit (bijv. is het wel een weekend?)
+      if (!_availableWeekdays.contains(checkDatum.weekday)) return false;
+      // 2. Check of de dag niet al verhuurd is!
+      if (_isDayBooked(checkDatum)) return false;
+
+      checkDatum = checkDatum.add(const Duration(days: 1));
+    }
+    return true;
+  }
 
   String _formatDate(DateTime? date) {
     if (date == null) return '--/--/----';
@@ -114,6 +228,28 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                 color: Colors.deepPurple,
               ),
             ),
+
+            if (_availableWeekdays.length < 7) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.calendar_today,
+                    size: 16,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Beschikbaar op: ${(widget.itemData['beschikbareDagen'] as List).join(", ")}',
+                      style: const TextStyle(color: Colors.grey, fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+
             const Divider(height: 40),
             const Text(
               "Huurperiode selecteren",
@@ -121,31 +257,111 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
             ),
             const SizedBox(height: 10),
 
-            // Simpele weergave van geselecteerde datums
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("Van: ${_formatDate(_startDate)}"),
-                Text("Tot: ${_formatDate(_endDate)}"),
+                Text(
+                  "Van: ${_formatDate(_startDate)}",
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  "Tot: ${_formatDate(_endDate)}",
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
               ],
             ),
+            const SizedBox(height: 16),
 
-            CalendarDatePicker(
-              initialDate: today,
-              firstDate: today,
-              lastDate: today.add(const Duration(days: 365)),
-              onDateChanged: (date) {
-                setState(() {
-                  if (_selectingStart) {
-                    _startDate = date;
-                    _selectingStart = false;
-                  } else {
-                    _endDate = date;
-                    _selectingStart = true;
-                  }
-                });
-              },
+            // Kalender container (Toont een lader als hij nog boekingen aan het ophalen is)
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              padding: const EdgeInsets.all(8),
+              child: _isLoadingBookings
+                  ? const Padding(
+                      padding: EdgeInsets.all(40.0),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : TableCalendar(
+                      firstDay: today,
+                      lastDay: today.add(const Duration(days: 365)),
+                      focusedDay: _focusedDay,
+                      rangeStartDay: _startDate,
+                      rangeEndDay: _endDate,
+                      calendarFormat: CalendarFormat.month,
+                      rangeSelectionMode: RangeSelectionMode.enforced,
+                      startingDayOfWeek: StartingDayOfWeek.monday,
+
+                      enabledDayPredicate: (day) {
+                        // Blokkeer de dag als hij niet in het rooster past OF al geboekt is
+                        if (!_availableWeekdays.contains(day.weekday))
+                          return false;
+                        if (_isDayBooked(day)) return false;
+                        return true;
+                      },
+
+                      calendarStyle: CalendarStyle(
+                        rangeHighlightColor: Colors.purple[100]!,
+                        rangeStartDecoration: const BoxDecoration(
+                          color: Colors.deepPurple,
+                          shape: BoxShape.circle,
+                        ),
+                        rangeEndDecoration: const BoxDecoration(
+                          color: Colors.deepPurple,
+                          shape: BoxShape.circle,
+                        ),
+                        withinRangeTextStyle: const TextStyle(
+                          color: Colors.deepPurple,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        todayDecoration: BoxDecoration(
+                          color: Colors.deepPurple.withOpacity(0.3),
+                          shape: BoxShape.circle,
+                        ),
+                        disabledTextStyle: TextStyle(
+                          color: Colors.grey[400],
+                        ), // Maakt geblokkeerde dagen mooi lichtgrijs
+                      ),
+
+                      onRangeSelected: (start, end, focusedDay) {
+                        setState(() => _focusedDay = focusedDay);
+
+                        if (start != null && end != null) {
+                          if (_isPeriodeGeldig(start, end)) {
+                            setState(() {
+                              _startDate = start;
+                              _endDate = end;
+                            });
+                          } else {
+                            setState(() {
+                              _startDate = start;
+                              _endDate = null;
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Je kunt deze periode niet selecteren, omdat het toestel tussendoor al verhuurd of onbeschikbaar is.',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        } else {
+                          setState(() {
+                            _startDate = start;
+                            _endDate = end;
+                          });
+                        }
+                      },
+                      onPageChanged: (focusedDay) {
+                        _focusedDay = focusedDay;
+                      },
+                    ),
             ),
+
             const SizedBox(height: 16),
             TextField(
               controller: _messageController,
