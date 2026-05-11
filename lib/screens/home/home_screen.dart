@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../widgets/topbar.dart';
 import '../../widgets/filter_bottom_sheet.dart';
 import '../search/item_detail_screen.dart';
@@ -19,10 +20,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoadingLocation = true;
 
   // Zoek & Filter Statussen
-  String _searchQuery = ""; // NIEUW: Houdt bij wat je intypt
+  String _searchQuery = "";
   String? _selectedCategoryFilter;
-  double? _maxDistance; // Null betekent: filter staat uit
-  double? _maxPrice; // Null betekent: filter staat uit
+  double? _maxDistance;
+  double? _maxPrice;
 
   @override
   void initState() {
@@ -70,9 +71,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Set<Marker> _buildMarkers(List<QueryDocumentSnapshot> docs) {
     Set<Marker> markers = {};
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
+
+      // Verberg je eigen toestellen
+      if (data['verhuurderId'] == currentUserId) continue;
+
       final GeoPoint? geoPoint = data['locatie'] is GeoPoint
           ? data['locatie']
           : null;
@@ -80,7 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final String omschrijving = (data['omschrijving'] ?? '').toLowerCase();
 
       if (geoPoint != null) {
-        // 1. Check Zoekterm (Tekstveld)
+        // 1. Check Zoekterm
         if (_searchQuery.isNotEmpty &&
             !omschrijving.contains(_searchQuery.toLowerCase()))
           continue;
@@ -90,10 +96,10 @@ class _HomeScreenState extends State<HomeScreen> {
             data['categorie'] != _selectedCategoryFilter)
           continue;
 
-        // 3. Check Prijs (Alleen als filter aan staat)
+        // 3. Check Prijs
         if (_maxPrice != null && prijs > _maxPrice!) continue;
 
-        // 4. Check Afstand (Alleen als filter aan staat)
+        // 4. Check Afstand
         if (_maxDistance != null) {
           double distanceInMeters = Geolocator.distanceBetween(
             _initialPosition.latitude,
@@ -139,7 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
-            // Het zoekveld (Nu open om in te typen)
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -153,9 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               child: TextField(
-                onChanged: (val) => setState(
-                  () => _searchQuery = val,
-                ), // Werkt de zoekterm live bij!
+                onChanged: (val) => setState(() => _searchQuery = val),
                 decoration: InputDecoration(
                   hintText: 'Zoek op naam...',
                   border: InputBorder.none,
@@ -177,8 +180,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // De Kaart
             Expanded(
               child: Container(
                 clipBehavior: Clip.antiAlias,

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../widgets/topbar.dart';
 import '../../widgets/filter_bottom_sheet.dart';
 import 'item_detail_screen.dart';
@@ -81,8 +82,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 ],
               ),
               child: TextField(
-                onChanged: (val) =>
-                    setState(() => _searchQuery = val), // Werkt zoekterm bij
+                onChanged: (val) => setState(() => _searchQuery = val),
                 decoration: InputDecoration(
                   hintText: 'Zoek in aanbod...',
                   border: InputBorder.none,
@@ -125,8 +125,14 @@ class _SearchScreenState extends State<SearchScreen> {
 
                 // FILTER DE LIJST
                 final allItems = snapshot.data!.docs;
+                final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+
                 final filteredItems = allItems.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
+
+                  // Verberg je eigen toestellen
+                  if (data['verhuurderId'] == currentUserId) return false;
+
                   final GeoPoint? geoPoint = data['locatie'] is GeoPoint
                       ? data['locatie']
                       : null;

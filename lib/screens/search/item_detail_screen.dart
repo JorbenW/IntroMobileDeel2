@@ -21,17 +21,16 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
 
   final _messageController = TextEditingController();
   bool _isRequesting = false;
-  bool _isLoadingBookings = true; // NIEUW: We moeten even wachten op Firebase
+  bool _isLoadingBookings = true;
 
   List<int> _availableWeekdays = [];
-  List<DateTime> _bookedDates =
-      []; // NIEUW: Onze 'zwarte lijst' met goedgekeurde dagen
+  List<DateTime> _bookedDates = [];
 
   @override
   void initState() {
     super.initState();
     _calculateAvailableDays();
-    _fetchBookedDates(); // NIEUW: Haal de goedgekeurde reserveringen op
+    _fetchBookedDates();
 
     DateTime today = DateTime.now();
     _focusedDay = today;
@@ -42,7 +41,6 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     }
   }
 
-  // Zet de tekst uit Firebase ("dd/MM/yyyy") terug naar een echte DateTime
   DateTime _parseDateString(String dateStr) {
     final parts = dateStr.split('/');
     if (parts.length == 3) {
@@ -55,7 +53,6 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     return DateTime.now();
   }
 
-  // NIEUW: Haal goedgekeurde datums uit Firebase
   Future<void> _fetchBookedDates() async {
     try {
       final snapshot = await FirebaseFirestore.instance
@@ -74,7 +71,6 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
         DateTime checkDatum = DateTime(start.year, start.month, start.day);
         DateTime normalizedEnd = DateTime(end.year, end.month, end.day);
 
-        // Voeg alle dagen tussen start en eind toe aan de zwarte lijst
         while (checkDatum.isBefore(normalizedEnd) ||
             checkDatum.isAtSameMomentAs(normalizedEnd)) {
           dates.add(checkDatum);
@@ -112,7 +108,6 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     _availableWeekdays = stringDays.map((d) => dayMap[d as String]!).toList();
   }
 
-  // NIEUW: Helper functie om te checken of een dag op de zwarte lijst staat
   bool _isDayBooked(DateTime day) {
     DateTime normalizedDay = DateTime(day.year, day.month, day.day);
     return _bookedDates.any((booked) => booked.isAtSameMomentAs(normalizedDay));
@@ -124,11 +119,8 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
 
     while (checkDatum.isBefore(normalizedEnd) ||
         checkDatum.isAtSameMomentAs(normalizedEnd)) {
-      // 1. Check of de dag wel in het rooster zit (bijv. is het wel een weekend?)
       if (!_availableWeekdays.contains(checkDatum.weekday)) return false;
-      // 2. Check of de dag niet al verhuurd is!
       if (_isDayBooked(checkDatum)) return false;
-
       checkDatum = checkDatum.add(const Duration(days: 1));
     }
     return true;
@@ -191,8 +183,11 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final base64String = widget.itemData['fotoBase64'] ?? '';
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = DateTime.now();
+
+    // Check of jij de eigenaar bent
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final bool isOwner = currentUser?.uid == widget.itemData['verhuurderId'];
 
     return Scaffold(
       appBar: AppBar(title: const Text("Details & Reserveren")),
@@ -251,133 +246,159 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
             ],
 
             const Divider(height: 40),
-            const Text(
-              "Huurperiode selecteren",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
 
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "Van: ${_formatDate(_startDate)}",
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+            if (isOwner)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue[200]!),
                 ),
-                Text(
-                  "Tot: ${_formatDate(_endDate)}",
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Kalender container (Toont een lader als hij nog boekingen aan het ophalen is)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
-              padding: const EdgeInsets.all(8),
-              child: _isLoadingBookings
-                  ? const Padding(
-                      padding: EdgeInsets.all(40.0),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  : TableCalendar(
-                      firstDay: today,
-                      lastDay: today.add(const Duration(days: 365)),
-                      focusedDay: _focusedDay,
-                      rangeStartDay: _startDate,
-                      rangeEndDay: _endDate,
-                      calendarFormat: CalendarFormat.month,
-                      rangeSelectionMode: RangeSelectionMode.enforced,
-                      startingDayOfWeek: StartingDayOfWeek.monday,
-
-                      enabledDayPredicate: (day) {
-                        // Blokkeer de dag als hij niet in het rooster past OF al geboekt is
-                        if (!_availableWeekdays.contains(day.weekday))
-                          return false;
-                        if (_isDayBooked(day)) return false;
-                        return true;
-                      },
-
-                      calendarStyle: CalendarStyle(
-                        rangeHighlightColor: Colors.purple[100]!,
-                        rangeStartDecoration: const BoxDecoration(
-                          color: Colors.deepPurple,
-                          shape: BoxShape.circle,
-                        ),
-                        rangeEndDecoration: const BoxDecoration(
-                          color: Colors.deepPurple,
-                          shape: BoxShape.circle,
-                        ),
-                        withinRangeTextStyle: const TextStyle(
-                          color: Colors.deepPurple,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        todayDecoration: BoxDecoration(
-                          color: Colors.deepPurple.withOpacity(0.3),
-                          shape: BoxShape.circle,
-                        ),
-                        disabledTextStyle: TextStyle(
-                          color: Colors.grey[400],
-                        ), // Maakt geblokkeerde dagen mooi lichtgrijs
+                child: const Column(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue, size: 30),
+                    SizedBox(height: 8),
+                    Text(
+                      "Dit is jouw eigen toestel.",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
                       ),
+                    ),
+                    Text(
+                      "Je kunt je eigen spullen niet huren.",
+                      style: TextStyle(color: Colors.blue),
+                    ),
+                  ],
+                ),
+              )
+            else ...[
+              const Text(
+                "Huurperiode selecteren",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
 
-                      onRangeSelected: (start, end, focusedDay) {
-                        setState(() => _focusedDay = focusedDay);
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "Van: ${_formatDate(_startDate)}",
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    "Tot: ${_formatDate(_endDate)}",
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
 
-                        if (start != null && end != null) {
-                          if (_isPeriodeGeldig(start, end)) {
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                padding: const EdgeInsets.all(8),
+                child: _isLoadingBookings
+                    ? const Padding(
+                        padding: EdgeInsets.all(40.0),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    : TableCalendar(
+                        firstDay: today,
+                        lastDay: today.add(const Duration(days: 365)),
+                        focusedDay: _focusedDay,
+                        rangeStartDay: _startDate,
+                        rangeEndDay: _endDate,
+                        calendarFormat: CalendarFormat.month,
+                        rangeSelectionMode: RangeSelectionMode.enforced,
+                        startingDayOfWeek: StartingDayOfWeek.monday,
+
+                        enabledDayPredicate: (day) {
+                          if (!_availableWeekdays.contains(day.weekday))
+                            return false;
+                          if (_isDayBooked(day)) return false;
+                          return true;
+                        },
+
+                        calendarStyle: CalendarStyle(
+                          rangeHighlightColor: Colors.purple[100]!,
+                          rangeStartDecoration: const BoxDecoration(
+                            color: Colors.deepPurple,
+                            shape: BoxShape.circle,
+                          ),
+                          rangeEndDecoration: const BoxDecoration(
+                            color: Colors.deepPurple,
+                            shape: BoxShape.circle,
+                          ),
+                          withinRangeTextStyle: const TextStyle(
+                            color: Colors.deepPurple,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          todayDecoration: BoxDecoration(
+                            color: Colors.deepPurple.withOpacity(0.3),
+                            shape: BoxShape.circle,
+                          ),
+                          disabledTextStyle: TextStyle(color: Colors.grey[400]),
+                        ),
+
+                        onRangeSelected: (start, end, focusedDay) {
+                          setState(() => _focusedDay = focusedDay);
+
+                          if (start != null && end != null) {
+                            if (_isPeriodeGeldig(start, end)) {
+                              setState(() {
+                                _startDate = start;
+                                _endDate = end;
+                              });
+                            } else {
+                              setState(() {
+                                _startDate = start;
+                                _endDate = null;
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Je kunt deze periode niet selecteren, omdat het toestel tussendoor al verhuurd of onbeschikbaar is.',
+                                  ),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          } else {
                             setState(() {
                               _startDate = start;
                               _endDate = end;
                             });
-                          } else {
-                            setState(() {
-                              _startDate = start;
-                              _endDate = null;
-                            });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Je kunt deze periode niet selecteren, omdat het toestel tussendoor al verhuurd of onbeschikbaar is.',
-                                ),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
                           }
-                        } else {
-                          setState(() {
-                            _startDate = start;
-                            _endDate = end;
-                          });
-                        }
-                      },
-                      onPageChanged: (focusedDay) {
-                        _focusedDay = focusedDay;
-                      },
-                    ),
-            ),
-
-            const SizedBox(height: 16),
-            TextField(
-              controller: _messageController,
-              decoration: const InputDecoration(
-                hintText: "Bericht voor verhuurder",
+                        },
+                        onPageChanged: (focusedDay) {
+                          _focusedDay = focusedDay;
+                        },
+                      ),
               ),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 24),
-            _isRequesting
-                ? const Center(child: CircularProgressIndicator())
-                : PinkButton(
-                    text: 'RESERVERING AANVRAGEN',
-                    onPressed: _submitRequest,
-                    icon: Icons.send,
-                  ),
+
+              const SizedBox(height: 16),
+              TextField(
+                controller: _messageController,
+                decoration: const InputDecoration(
+                  hintText: "Bericht voor verhuurder",
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 24),
+              _isRequesting
+                  ? const Center(child: CircularProgressIndicator())
+                  : PinkButton(
+                      text: 'RESERVERING AANVRAGEN',
+                      onPressed: _submitRequest,
+                      icon: Icons.send,
+                    ),
+            ],
           ],
         ),
       ),
