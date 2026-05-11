@@ -43,8 +43,9 @@ class _EditItemScreenState extends State<EditItemScreen> {
       text: widget.itemData['prijs'].toString(),
     );
     _selectedCategorie = widget.itemData['categorie'];
-    if (widget.itemData['fotoBase64'] != null)
+    if (widget.itemData['fotoBase64'] != null) {
       _imageBytes = base64Decode(widget.itemData['fotoBase64']);
+    }
 
     _latController = TextEditingController();
     _lngController = TextEditingController();
