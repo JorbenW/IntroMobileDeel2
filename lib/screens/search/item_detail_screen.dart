@@ -317,6 +317,9 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                         calendarFormat: CalendarFormat.month,
                         rangeSelectionMode: RangeSelectionMode.enforced,
                         startingDayOfWeek: StartingDayOfWeek.monday,
+                        availableGestures: AvailableGestures.horizontalSwipe,
+                        pageJumpingEnabled: false,
+                        shouldFillViewport: false,
 
                         enabledDayPredicate: (day) {
                           if (!_availableWeekdays.contains(day.weekday))
