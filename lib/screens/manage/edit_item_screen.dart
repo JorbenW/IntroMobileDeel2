@@ -1,8 +1,12 @@
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:io';
+import 'package:flutter/foundation.dart'; // NIEUW
+import 'package:flutter/gestures.dart'; // NIEUW
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../widgets/topbar.dart';
+import 'package:flutter_application_intro_mobile/screens/bottom_navbar.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../widgets/pink_button.dart';
 import '../../constants/constants.dart';
 
@@ -21,17 +25,27 @@ class EditItemScreen extends StatefulWidget {
 }
 
 class _EditItemScreenState extends State<EditItemScreen> {
+  final _formKey = GlobalKey<FormState>();
   late TextEditingController _omschrijvingController;
-  late TextEditingController _latController;
-  late TextEditingController _lngController;
   late TextEditingController _prijsController;
 
-  String? _selectedCategorie;
-  Uint8List? _imageBytes;
-  bool _isLoading = false;
+  String? _selectedCategory;
+  String? _base64Image;
+  bool _isSaving = false;
 
-  // NIEUW: De geselecteerde dagen
-  List<String> _selectedDays = [];
+  final List<String> _alleDagen = [
+    'Maandag',
+    'Dinsdag',
+    'Woensdag',
+    'Donderdag',
+    'Vrijdag',
+    'Zaterdag',
+    'Zondag',
+  ];
+  List<String> _geselecteerdeDagen = [];
+
+  GoogleMapController? _mapController;
+  LatLng? _currentLocation;
 
   @override
   void initState() {
@@ -42,141 +56,169 @@ class _EditItemScreenState extends State<EditItemScreen> {
     _prijsController = TextEditingController(
       text: widget.itemData['prijs'].toString(),
     );
-    _selectedCategorie = widget.itemData['categorie'];
-    if (widget.itemData['fotoBase64'] != null) {
-      _imageBytes = base64Decode(widget.itemData['fotoBase64']);
-    }
+    _selectedCategory = widget.itemData['categorie'];
+    _base64Image = widget.itemData['fotoBase64'];
+    _geselecteerdeDagen = List<String>.from(
+      widget.itemData['beschikbareDagen'] ?? [],
+    );
 
-    _latController = TextEditingController();
-    _lngController = TextEditingController();
-    if (widget.itemData['locatie'] is GeoPoint) {
-      GeoPoint gp = widget.itemData['locatie'];
-      _latController.text = gp.latitude.toString();
-      _lngController.text = gp.longitude.toString();
-    }
+    final GeoPoint? gp = widget.itemData['locatie'];
+    if (gp != null) _currentLocation = LatLng(gp.latitude, gp.longitude);
+  }
 
-    // NIEUW: Lees de dagen uit. Zijn het er geen? Dan gaan we er vanuit dat hij altijd beschikbaar is (terugwerkende kracht)
-    if (widget.itemData['beschikbareDagen'] != null) {
-      _selectedDays = List<String>.from(widget.itemData['beschikbareDagen']);
-    } else {
-      _selectedDays = List.from(kDaysOfWeek);
+  Future<void> _kiesNieuweFoto() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 50,
+    );
+    if (pickedFile != null) {
+      final bytes = await File(pickedFile.path).readAsBytes();
+      setState(() => _base64Image = base64Encode(bytes));
     }
   }
 
   Future<void> _updateItem() async {
-    setState(() => _isLoading = true);
-    double lat = double.tryParse(_latController.text.trim()) ?? 0.0;
-    double lng = double.tryParse(_lngController.text.trim()) ?? 0.0;
-
-    await FirebaseFirestore.instance
-        .collection('toestellen')
-        .doc(widget.docId)
-        .update({
-          'omschrijving': _omschrijvingController.text,
-          'locatie': GeoPoint(lat, lng),
-          'categorie': _selectedCategorie,
-          'prijs': double.tryParse(_prijsController.text) ?? 0.0,
-          'beschikbareDagen': _selectedDays, // NIEUW: Update in Firebase
-        });
-
-    if (mounted) Navigator.pop(context);
+    if (!_formKey.currentState!.validate() || _geselecteerdeDagen.isEmpty)
+      return;
+    setState(() => _isSaving = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('toestellen')
+          .doc(widget.docId)
+          .update({
+            'omschrijving': _omschrijvingController.text.trim(),
+            'prijs': double.parse(_prijsController.text.trim()),
+            'categorie': _selectedCategory,
+            'beschikbareDagen': _geselecteerdeDagen,
+            'fotoBase64': _base64Image,
+            'locatie': GeoPoint(
+              _currentLocation!.latitude,
+              _currentLocation!.longitude,
+            ),
+          });
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const MainNavigation()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      setState(() => _isSaving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const CustomAppBar(showProfileIcon: false),
+      appBar: AppBar(title: const Text('Bewerken')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              "Item Bewerken",
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _omschrijvingController,
-              decoration: const InputDecoration(labelText: "Omschrijving"),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _latController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(labelText: "Latitude"),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_base64Image != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.memory(
+                    base64Decode(_base64Image!),
+                    height: 180,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: TextField(
-                    controller: _lngController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+              TextButton.icon(
+                onPressed: _kiesNieuweFoto,
+                icon: const Icon(Icons.edit),
+                label: const Text("WIJZIG FOTO"),
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: _omschrijvingController,
+                decoration: const InputDecoration(labelText: 'Naam'),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _prijsController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Prijs'),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _selectedCategory,
+                items: kCategories
+                    .map(
+                      (cat) => DropdownMenuItem(value: cat, child: Text(cat)),
+                    )
+                    .toList(),
+                onChanged: (val) => setState(() => _selectedCategory = val),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                "Locatie aanpassen",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              if (_currentLocation != null)
+                Container(
+                  height: 250,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.deepPurple, width: 2),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: GoogleMap(
+                    initialCameraPosition: CameraPosition(
+                      target: _currentLocation!,
+                      zoom: 15,
                     ),
-                    decoration: const InputDecoration(labelText: "Longitude"),
+                    onMapCreated: (controller) => _mapController = controller,
+                    myLocationEnabled: true,
+                    zoomControlsEnabled: true,
+                    // CRUCIALE FIX:
+                    gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                      Factory<OneSequenceGestureRecognizer>(
+                        () => EagerGestureRecognizer(),
+                      ),
+                    },
+                    markers: {
+                      Marker(
+                        markerId: const MarkerId('p'),
+                        position: _currentLocation!,
+                        icon: BitmapDescriptor.defaultMarkerWithHue(
+                          BitmapDescriptor.hueViolet,
+                        ),
+                      ),
+                    },
+                    onTap: (pos) => setState(() => _currentLocation = pos),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _prijsController,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
+              const SizedBox(height: 24),
+              Wrap(
+                spacing: 8,
+                children: _alleDagen
+                    .map(
+                      (dag) => FilterChip(
+                        label: Text(dag),
+                        selected: _geselecteerdeDagen.contains(dag),
+                        onSelected: (s) => setState(
+                          () => s
+                              ? _geselecteerdeDagen.add(dag)
+                              : _geselecteerdeDagen.remove(dag),
+                        ),
+                      ),
+                    )
+                    .toList(),
               ),
-              decoration: const InputDecoration(labelText: "Prijs"),
-            ),
-
-            // NIEUW: De Selectie UI
-            const SizedBox(height: 24),
-            const Text(
-              'Beschikbare Dagen',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.deepPurple,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8.0,
-              runSpacing: 4.0,
-              children: kDaysOfWeek.map((day) {
-                final isSelected = _selectedDays.contains(day);
-                return FilterChip(
-                  label: Text(
-                    day,
-                    style: TextStyle(
-                      color: isSelected ? Colors.deepPurple : Colors.black87,
-                    ),
-                  ),
-                  selected: isSelected,
-                  selectedColor: Colors.purple[100],
-                  checkmarkColor: Colors.deepPurple,
-                  onSelected: (bool selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedDays.add(day);
-                      } else {
-                        _selectedDays.remove(day);
-                      }
-                    });
-                  },
-                );
-              }).toList(),
-            ),
-
-            const SizedBox(height: 32),
-            _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : PinkButton(text: "OPSLAAN", onPressed: _updateItem),
-          ],
+              const SizedBox(height: 32),
+              _isSaving
+                  ? const Center(child: CircularProgressIndicator())
+                  : PinkButton(text: 'OPSLAAN', onPressed: _updateItem),
+            ],
+          ),
         ),
       ),
     );
